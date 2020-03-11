@@ -91,8 +91,38 @@ function CarveLVM {
    dd if=/dev/zero of="${CHROOTDEV}" bs=512 count=1000 > /dev/null 2>&1
 
    # Lay down the base partitions
-   parted -s "${CHROOTDEV}" -- mklabel msdos mkpart primary "${FSTYPE}" 2048s ${BOOTDEVSZ} \
-      mkpart primary "${FSTYPE}" ${BOOTDEVSZ} 100% set 2 lvm
+   # We need fdisk in some environments when partprobe is not working
+   if [ "${FDISKTYPE:-"parted"}" = "parted" ] ; then
+
+      parted -s "${CHROOTDEV}" -- mklabel msdos mkpart primary "${FSTYPE}" 2048s ${BOOTDEVSZ} \
+         mkpart primary "${FSTYPE}" ${BOOTDEVSZ} 100% set 2 lvm
+
+   elif [ "${FDISKTYPE:-"parted"}" = "fdisk" ] ; then
+
+      # create boot-partition
+      fdisk "${CHROOTDEV}" <<EOF
+n
+
+
+
++${BOOTDEVSZ}
+p
+w
+EOF
+      # create LVM-Partition
+      fdisk "${CHROOTDEV}" <<EOF
+n
+p
+2
+
+
+t
+2
+8e
+p
+w
+EOF
+   fi
 
    # Gather info to diagnose seeming /boot race condition
    if [[ $(grep -q "${BOOTLABEL}" /proc/mounts)$? -eq 0 ]]
@@ -202,7 +232,7 @@ function CarveBare {
 ######################
 ## Main program-flow
 ######################
-OPTIONBUFR=$(getopt -o b:d:f:hp:r:v: --long bootlabel:,disk:,fstype:,help,partitioning:,rootlabel:,vgname: -n "${PROGNAME}" -- "$@")
+OPTIONBUFR=$(getopt -o b:d:f:hp:r:v: --long bootlabel:,disk:,fdisk,fstype:,help,partitioning:,rootlabel:,vgname: -n "${PROGNAME}" -- "$@")
 
 eval set -- "${OPTIONBUFR}"
 
@@ -237,6 +267,10 @@ do
                   shift 2;
                   ;;
             esac
+            ;;
+      --fdisk)
+            FDISKTYPE="fdisk"
+            shift
             ;;
       -f|--fstype)
             case "$2" in
